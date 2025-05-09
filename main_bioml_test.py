@@ -1,18 +1,19 @@
 import keras
 import pandas as pd
 from keras import Sequential
-from keras.layers import RNN, TimeDistributed, Dense, GlobalMaxPool1D, GlobalAveragePooling1D, Flatten, ConvLSTM1D, Bidirectional, Reshape, LSTM, BatchNormalization, Conv1D, Dropout
+from keras.layers import RNN
 from keras.initializers import GlorotNormal
-import keras.backend as K
 from keras.optimizers import Adam
 from keras import callbacks
 from data_utils import add_label, compute_fft, compute_kaiman
+from ml_utils import r_squared
 import tensorflow as tf
 from keras_multi_head import MultiHeadAttention
 from tensorflow_addons.rnn import PeepholeLSTMCell
 import glob, os
 import matplotlib
 import matplotlib.pyplot as plt
+
 
 matplotlib.use('TkAgg')
 batch_size = 2* 24 #* 60
@@ -22,6 +23,7 @@ initializer = GlorotNormal(seed=42)
 
 log_dir = "logs/fit/" + "biofreq"
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+
 
 class CombinedLRScheduler(tf.keras.callbacks.Callback):
     def __init__(self, initial_lr, max_lr, increase_factor=2, patience=num_epochs//15, plateau_patience=num_epochs//20, min_lr=1e-6):
@@ -77,39 +79,6 @@ class CombinedLRScheduler(tf.keras.callbacks.Callback):
 
 
 combined_lr_scheduler = CombinedLRScheduler(patience=num_epochs//20, plateau_patience=num_epochs//25, initial_lr=0.0005, max_lr=0.01)
-
-def r_squared(y_true, y_pred):
-    """
-    Calculate the R-squared (R2) metric.
-
-    Args:
-        y_true: True target values.
-        y_pred: Predicted values.
-
-    Returns:
-        R-squared value.
-    """
-    SS_res = K.sum(K.square(y_true - y_pred))
-    SS_tot = K.sum(K.square(y_true - K.mean(y_true)))
-    return (1 - (SS_res / (SS_tot + K.epsilon())))
-
-
-def butter_bandpass(lowcut, highcut, fs, order=5):
-    from scipy.signal import butter
-    nyq = 0.5 * fs  # Nyquist frequency
-    low = lowcut / nyq
-    high = highcut / nyq
-    b, a = butter(order, [low, high], btype='band')
-    return b, a
-
-def bandpass_filter(data, lowcut, highcut, fs, order=5):
-    from scipy.signal import filtfilt
-    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
-    y = filtfilt(b, a, data)
-    return y
-
-
-
 earlystopping = callbacks.EarlyStopping(monitor ="val_loss",
                                         mode ="min", patience = (num_epochs//10)+4,
                                         restore_best_weights = True)
@@ -162,7 +131,10 @@ meteo_data = meteo_data.set_index('datetime')
 meteo_data = meteo_data.drop(columns=['Data', 'Ora'])
 
 
-train_x, test_x, train_y, test_y, y_scaler = add_label(df_list, meteo_data, batch_size)
+# chosen_column = 'Umidità [ % ]'
+chosen_column = 'Temperatura[ °C ]'
+# chosen_column = 'Pluviometro[ mm ]'
+train_x, test_x, train_y, test_y, y_scaler = add_label(df_list, meteo_data, batch_size, chosen_column=chosen_column)
 
 
 model = Sequential()
@@ -183,15 +155,15 @@ model = tf.keras.Sequential([
     # tf.keras.layers.Conv1D(64, 3, activation='relu', input_shape=(1, n_features)),
     # tf.keras.layers.BatchNormalization(),
     tf.keras.layers.Bidirectional(RNN(PeepholeLSTMCell(units=len(initial_data.columns)  * 2, activation='relu',
-                          dropout=0.25, recurrent_dropout=0.2, bias_initializer='zeros', kernel_initializer=keras.initializers.GlorotNormal(seed=42)
+                          dropout=0.25, recurrent_dropout=0.2, bias_initializer='zeros', kernel_initializer=initializer
                           ), return_sequences=True, name='RNN_Peephole_LSTM_cells')),
     # tf.keras.layers.Conv1D(filters=3, kernel_size=14, padding='same',
     #                      kernel_initializer=initializer,
     #               bias_initializer=keras.initializers.Zeros(), name='Conv1D'),
     MultiHeadAttention(2),
-    tf.keras.layers.Dense(32, activation='selu', kernel_initializer=keras.initializers.GlorotNormal(seed=42), bias_initializer='zeros'),
+    tf.keras.layers.Dense(32, activation='selu', kernel_initializer=initializer, bias_initializer='zeros'),
     tf.keras.layers.Dropout(0.3),
-    tf.keras.layers.Dense(1, activation='sigmoid', kernel_initializer=keras.initializers.GlorotNormal(seed=42), bias_initializer='zeros')
+    tf.keras.layers.Dense(1, activation='sigmoid', kernel_initializer=initializer, bias_initializer='zeros')
 ])
 
 model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['accuracy', r_squared])
@@ -214,3 +186,4 @@ h.columns = ['Predicted', 'Test_y']
 
 axes = h.plot(subplots=False, legend=True)
 matplotlib.pyplot.show(block=True)
+model.save(f'bioml_{batch_size}_{chosen_column[:6]}')

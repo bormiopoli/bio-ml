@@ -1,65 +1,22 @@
 import pandas as pd
-from pandas import concat, DataFrame
 from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
 from sklearn.utils import class_weight
 import numpy as np
 
 
-def series_to_supervised(data, n_in=1, n_out=1, dropnan=False):
-    n_vars = 1 if type(data) is list else data.shape[1]
-    df = DataFrame(data)
-    cols, names = list(), list()
-    # input sequence (t-n, ... t-1)
-    for i in range(n_in, 0, -1):
-        cols.append(df.shift(i))
-        names += [('var%d(t-%d)' % (j + 1, i)) for j in range(n_vars)]
-    # forecast sequence (t, t+1, ... t+n)
-    for i in range(0, n_out):
-        cols.append(df.shift(-i))
-        if i == 0:
-            names += [('var%d(t)' % (j + 1)) for j in range(n_vars)]
-        else:
-            names += [('var%d(t+%d)' % (j + 1, i)) for j in range(n_vars)]
-    # put it all together
-    agg = concat(cols, axis=1)
-    agg.columns = names
-    # drop rows with NaN values
-    if dropnan:
-        agg.dropna(inplace=True)
-    return agg
+def butter_bandpass(lowcut, highcut, fs, order=5):
+    from scipy.signal import butter
+    nyq = 0.5 * fs  # Nyquist frequency
+    low = lowcut / nyq
+    high = highcut / nyq
+    b, a = butter(order, [low, high], btype='band')
+    return b, a
 
-
-def compute_class_weights(train_y, batch_size, class_weight_instance=class_weight):
-    num_batches = train_y.shape[0] // batch_size + (train_y.shape[0] % batch_size > 0)
-    class_counts = {}
-
-    for i in range(num_batches):
-        # Get the current batch
-        start_index = i * batch_size
-        end_index = min(start_index + batch_size, train_y.shape[0])
-        batch_y = train_y[start_index:end_index]
-
-        # Reshape for computing class weights
-        batch_y_reshaped = batch_y.reshape(-1)
-
-        # Compute class weights for the current batch
-        class_weights = class_weight_instance.compute_class_weight(
-            class_weight='balanced',
-            classes=np.unique(batch_y_reshaped),
-            y=batch_y_reshaped
-        )
-
-        # Aggregate class weights
-        for j, cls in enumerate(np.unique(batch_y_reshaped)):
-            if cls in class_counts:
-                class_counts[cls].append(class_weights[j])
-            else:
-                class_counts[cls] = [class_weights[j]]
-
-    # Compute the mean class weight for each class
-    aggregated_class_weights = {cls: np.mean(weights) for cls, weights in class_counts.items()}
-
-    return aggregated_class_weights
+def bandpass_filter(data, lowcut, highcut, fs, order=5):
+    from scipy.signal import filtfilt
+    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
+    y = filtfilt(b, a, data)
+    return y
 
 
 def compute_kaiman(df):
@@ -154,7 +111,8 @@ def split_data(train_x, train_y, indexes, factor=8):
     return train_x, test_x, train_y, test_y, index_train_y, index_test_y
 
 
-def add_label(dfs, fun_meteo_data, batch_size):
+def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]'
+              , training=True):
 
     trains_y = []
     trains_x = []
@@ -172,17 +130,12 @@ def add_label(dfs, fun_meteo_data, batch_size):
         end = df.index[-1];
         df = df[~df.index.duplicated(keep=False)]
         temp_meteo_data = fun_meteo_data[(fun_meteo_data.index >= beginning) & (fun_meteo_data.index <= end)]
+        columns_to_remove = [col for col in temp_meteo_data.columns if chosen_column not in col]
         complete_data = pd.concat([df, temp_meteo_data], axis=1)
         complete_data.sort_index(inplace=True)
         complete_data = complete_data.interpolate(method='time')
         complete_data.dropna(how='any', inplace=True)
 
-        chosen_column =  'Temperatura[ °C ]'
-        # chosen_column = 'Anemometro[ km/h ]'
-        columns_to_remove = ['Pluviometro[ mm ]', 'Umidità [ % ]', 'Anemometro[ km/h ]',
-           'Bagnatura fogliare stimata[ Bagnatura ]',
-           'Bagnatura fogliare[ Bagnatura ]', 'T Bulbo umido[ °C ]']
-        # columns_to_remove = []
         complete_data = complete_data[pd.Index(
             sorted([col for col in complete_data.columns if chosen_column not in col and col not in columns_to_remove])  +  [col for col in complete_data.columns if
                                                                           chosen_column in col])]
@@ -212,16 +165,20 @@ def add_label(dfs, fun_meteo_data, batch_size):
             X = np.concatenate(X)
             Y = np.concatenate(Y)
 
-            train_x = X[:(X.shape[0] // 10) * 8]
-            test_x = X[(X.shape[0] // 10) * 8:]
-
-            train_y = Y[:(Y.shape[0] // 10) * 8]
-            test_y = Y[(Y.shape[0] // 10) * 8 :]
-
-            trains_y.append(train_y)
-            trains_x.append(train_x)
-            tests_x.append(test_x)
-            tests_y.append(test_y)
+            if training:
+                train_x = X[:(X.shape[0] // 10) * 8]
+                test_x = X[(X.shape[0] // 10) * 8:]
+                train_y = Y[:(Y.shape[0] // 10) * 8]
+                test_y = Y[(Y.shape[0] // 10) * 8:]
+                trains_y.append(train_y)
+                trains_x.append(train_x)
+                tests_x.append(test_x)
+                tests_y.append(test_y)
+            else:
+                train_x = X
+                train_y = Y
+                trains_y.append(train_y)
+                trains_x.append(train_x)
 
             indices.append(complete_data.index[-(len(complete_data.index) // batch_size) * batch_size:])
 
@@ -231,10 +188,14 @@ def add_label(dfs, fun_meteo_data, batch_size):
 
     trains_x = np.concatenate(trains_x)
     trains_y = np.concatenate(trains_y)
-    tests_x = np.concatenate(tests_x)
-    tests_y = np.concatenate(tests_y)
 
-    return trains_x, tests_x, trains_y, tests_y, scaler
+    if not training:
+        return trains_x, trains_y, scaler
+    else:
+        tests_x = np.concatenate(tests_x)
+        tests_y = np.concatenate(tests_y)
+
+        return trains_x, tests_x, trains_y, tests_y, scaler
 
 
 # def add_label_categorise(df, fun_meteo_data, batch_size, is_tf=True):
