@@ -1,0 +1,19 @@
+Model: "sequential_1"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #
+=================================================================
+ bidirectional (Bidirection  (None, 48, 32)            3296
+ al)
+
+ multi_head_attention (Mult  (None, 48, 32)            4224
+ iHeadAttention)
+
+ dense (Dense)               (None, 48, 32)            1056
+
+ dropout (Dropout)           (None, 48, 32)            0
+
+ dense_1 (Dense)             (None, 48, 1)             33
+
+=================================================================
+Total params: 8609 (33.63 KB)
+Trainable params: 8609 (33.63 KB)
