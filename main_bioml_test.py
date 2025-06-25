@@ -134,7 +134,7 @@ meteo_data = meteo_data.drop(columns=['Data', 'Ora'])
 # chosen_column = 'Umidità [ % ]'
 chosen_column = 'Temperatura[ °C ]'
 # chosen_column = 'Pluviometro[ mm ]'
-train_x, test_x, train_y, test_y, y_scaler = add_label(df_list, meteo_data, batch_size, chosen_column=chosen_column)
+train_x, test_x, train_y, test_y, y_scaler, index_test_y = add_label(df_list, meteo_data, batch_size, chosen_column=chosen_column)
 
 
 model = Sequential()
@@ -180,10 +180,51 @@ history = model.fit(train_x, train_y,
                     )
 
 
+# Rebuild h just in case (your version)
 yhat = model.predict(test_x, batch_size=batch_size)[:, -1]
-h = pd.concat([pd.DataFrame.from_dict(yhat.flatten()), pd.DataFrame.from_dict(test_y[:, -1].flatten())], axis=1, ignore_index=True)
-h.columns = ['Predicted', 'Test_y']
+yhat = pd.DataFrame(yhat.flatten(), columns=['Predicted Temperature'])
+yhat['index'] = index_test_y[:, -1]
 
-axes = h.plot(subplots=False, legend=True)
-matplotlib.pyplot.show(block=True)
+y_obs = pd.DataFrame(test_y[:, -1].flatten(), columns=['Observed Temperature'])
+y_obs['index'] = index_test_y[:, -1]
+
+# Merge on index
+h = pd.merge(yhat, y_obs, on='index')
+h.set_index('index', inplace=True)
+
+# Convert index to datetime and sort
+h.index = pd.to_datetime(h.index)
+h.sort_index(inplace=True)
+
+# Detect time gaps larger than 1 hour
+gap_threshold = pd.Timedelta(hours=1)
+time_diffs = h.index.to_series().diff()
+h['segment_id'] = (time_diffs > gap_threshold).cumsum().fillna(0).astype(int)
+
+# If needed, split into list of DataFrames:
+segments = [group for _, group in h.groupby('segment_id')]
+
+# Create a directory to save the plots (optional)
+output_dir = '/home/daltonik/Desktop/bioML_R1/bio-ml/images'
+os.makedirs(output_dir, exist_ok=True)
+
+# Loop through each segment and save the plot
+for idx, segment in enumerate(segments):
+    plt.figure(figsize=(10, 5))
+    plt.plot(segment.index, segment['Predicted Temperature'], label='Predicted', color='tab:blue')
+    plt.plot(segment.index, segment['Observed Temperature'], label='Observed', color='tab:orange')
+
+    plt.title(f'Temperature Trends – Segment {segment["segment_id"].iloc[0]}')
+    plt.xlabel('Time')
+    plt.ylabel('Temperature')
+    plt.legend()
+    plt.grid(True)
+
+    # Save to file
+    filename = f'segment_{segment["segment_id"].iloc[0]}.png'
+    filepath = os.path.join(output_dir, filename)
+    plt.tight_layout()
+    plt.savefig(filepath)
+    plt.close()
+
 model.save(f'bioml_{batch_size}_{chosen_column[:6]}')

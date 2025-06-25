@@ -144,8 +144,10 @@ def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]
         num_samples = len(complete_data) - batch_size
         X = []
         Y = []
+        INDEX = []
         scaled_data = scaler.fit_transform(complete_data)
-        complete_data = pd.DataFrame(scaled_data, columns=complete_data.columns)
+        complete_data = pd.DataFrame(scaled_data, columns=complete_data.columns, index=complete_data.index
+                                     )
 
         for i in range(num_samples):
 
@@ -158,12 +160,14 @@ def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]
 
             X.append(x)
             Y.append(y.reshape(1, -1))
+            INDEX.append(complete_data[complete_data.columns[-1]].iloc[i:i+batch_size].index.values.reshape(1, -1))
 
         # batch_size = 1
         try:
 
             X = np.concatenate(X)
             Y = np.concatenate(Y)
+            INDEX = np.concatenate(INDEX)
 
             if training:
                 train_x = X[:(X.shape[0] // 10) * 8]
@@ -174,28 +178,29 @@ def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]
                 trains_x.append(train_x)
                 tests_x.append(test_x)
                 tests_y.append(test_y)
+                indices.append(INDEX[(Y.shape[0] // 10) * 8:])
+
             else:
                 train_x = X
                 train_y = Y
+                indices.append(INDEX)
                 trains_y.append(train_y)
                 trains_x.append(train_x)
-
-            indices.append(complete_data.index[-(len(complete_data.index) // batch_size) * batch_size:])
-
 
         except Exception as err:
             print("Not enough length for test or train data   ", err)
 
     trains_x = np.concatenate(trains_x)
     trains_y = np.concatenate(trains_y)
+    indices = np.concatenate(indices)
 
     if not training:
-        return trains_x, trains_y, scaler
+        return trains_x, trains_y, scaler. indices
     else:
         tests_x = np.concatenate(tests_x)
         tests_y = np.concatenate(tests_y)
 
-        return trains_x, tests_x, trains_y, tests_y, scaler
+        return trains_x, tests_x, trains_y, tests_y, scaler, indices
 
 
 # def add_label_categorise(df, fun_meteo_data, batch_size, is_tf=True):
