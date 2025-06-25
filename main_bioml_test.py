@@ -131,8 +131,8 @@ meteo_data = meteo_data.set_index('datetime')
 meteo_data = meteo_data.drop(columns=['Data', 'Ora'])
 
 
-chosen_column = 'Umidità [ % ]'
-# chosen_column = 'Temperatura[ °C ]'
+# chosen_column = 'Umidità [ % ]'
+chosen_column = 'Temperatura[ °C ]'
 # chosen_column = 'Pluviometro[ mm ]'
 
 train_x, test_x, train_y, test_y, y_scaler, index_test_y = add_label(df_list, meteo_data, batch_size, chosen_column=chosen_column)
@@ -161,7 +161,7 @@ model = tf.keras.Sequential([
     # tf.keras.layers.Conv1D(filters=3, kernel_size=14, padding='same',
     #                      kernel_initializer=initializer,
     #               bias_initializer=keras.initializers.Zeros(), name='Conv1D'),
-    MultiHeadAttention(2),
+    MultiHeadAttention(2, name='attention_layer'),
     tf.keras.layers.Dense(32, activation='selu', kernel_initializer=initializer, bias_initializer='zeros'),
     tf.keras.layers.Dropout(0.3),
     tf.keras.layers.Dense(1, activation='sigmoid', kernel_initializer=initializer, bias_initializer='zeros')
@@ -204,12 +204,20 @@ y_obs.index = y_obs.index.astype(str)
 
 # Step 5: Concatenate the two DataFrames
 h = pd.concat([yhat, y_obs], axis=1, ignore_index=True)
-h.columns = [f"Predicted {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}_batch_{batch_size}",
-             f"Observed {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}_batch_{batch_size}"]
-h.plot()
+h.columns = [f"Predicted {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}",
+             f"Observed {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}"]
+
+width_px = 1400
+height_px = 1000
+dpi = 100  # dots per inch
+figsize = (width_px / dpi, height_px / dpi)
+h.plot(figsize=figsize)
 plt.xlabel("Time")  # X-axis label
-plt.ylabel(f"Standardised {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}_batch_{batch_size}")  # Y-axis label
-plt.title(f"Predicted vs Observed {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}_batch_{batch_size}")
+plt.ylabel(f"Standardised {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}", fontsize=20)  # Y-axis label
+plt.title(f"Predicted vs Observed {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}", fontsize=20)
+plt.xticks(fontsize=18, rotation=60)  # Increase x-axis tick label font
+plt.yticks(fontsize=18)
+plt.legend(fontsize=18)
 plt.tight_layout()
-plt.savefig(f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/predicted_{'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}_batch_{batch_size}")
+plt.savefig(f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/predicted_{'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}")
 model.save(f'bioml_{batch_size}_{chosen_column[:6]}')
