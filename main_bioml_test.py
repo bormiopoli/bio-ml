@@ -222,23 +222,23 @@ for i, values in enumerate(zip(segments, scalers_y)):
     with open(f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/{'temperature' if chosen_column == 'Temperatura[ °C ]' else 'umidity'}", 'a') as fw:
         fw.writelines(f"Group {i} from {segment.index[0].strftime('%d-%m-%Y')} to {segment.index[-1].strftime('%d-%m-%Y')} has MAE: {mae_original}\n")
     maes.append(mae_original)
-    # width_px = 1400
-    # height_px = 1000
-    # dpi = 100  # dots per inch
-    # figsize = (width_px / dpi, height_px / dpi)
-    # segment.plot(figsize=figsize)
-    # plt.xlabel("Time", fontsize=20)  # X-axis label
-    # plt.ylabel(f"Standardised {'temperature' if chosen_column == 'Temperatura[ °C ]' else 'humidity'}",
-    #            fontsize=20)  # Y-axis label
-    # plt.title(f"Predicted vs Observed {'temperature' if chosen_column == 'Temperatura[ °C ]' else 'humidity'}",
-    #           fontsize=20)
-    # plt.xticks(fontsize=18, rotation=60)  # Increase x-axis tick label font
-    # plt.yticks(fontsize=18)
-    # plt.legend(fontsize=18)
-    # plt.tight_layout()
-    # plt.savefig(
-    #     f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/predicted_{'temperature' if chosen_column == 'Temperatura[ °C ]' else 'umidity'}_{i}")
-    # plt.close()
+    width_px = 1400
+    height_px = 1000
+    dpi = 100  # dots per inch
+    figsize = (width_px / dpi, height_px / dpi)
+    segment.plot(figsize=figsize)
+    plt.xlabel("Time", fontsize=20)  # X-axis label
+    plt.ylabel(f"Standardised {'temperature' if chosen_column == 'Temperatura[ °C ]' else 'humidity'}",
+               fontsize=20)  # Y-axis label
+    plt.title(f"Predicted vs Observed {'temperature' if chosen_column == 'Temperatura[ °C ]' else 'humidity'}",
+              fontsize=20)
+    plt.xticks(fontsize=18, rotation=60)  # Increase x-axis tick label font
+    plt.yticks(fontsize=18)
+    plt.legend(fontsize=18)
+    plt.tight_layout()
+    plt.savefig(
+        f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/predicted_{'temperature' if chosen_column == 'Temperatura[ °C ]' else 'umidity'}_{i}")
+    plt.close()
 
 pearson_corr, p_value_pearson = pearsonr(h['observed'], h['predicted'])
 # Spearman
