@@ -1,4 +1,3 @@
-import keras
 import pandas as pd
 from keras import Sequential
 from keras.layers import RNN
@@ -13,10 +12,10 @@ from tensorflow_addons.rnn import PeepholeLSTMCell
 import glob, os
 import matplotlib
 import matplotlib.pyplot as plt
-
+from sklearn.metrics import mean_absolute_error
 
 matplotlib.use('TkAgg')
-batch_size = 2* 24 #* 60
+batch_size = 2 * 24 #* 60
 num_epochs = 1200
 initializer = GlorotNormal(seed=42)
 
@@ -131,11 +130,11 @@ meteo_data = meteo_data.set_index('datetime')
 meteo_data = meteo_data.drop(columns=['Data', 'Ora'])
 
 
-# chosen_column = 'Umidità [ % ]'
-chosen_column = 'Temperatura[ °C ]'
+chosen_column = 'Umidità [ % ]'
+# chosen_column = 'Temperatura[ °C ]'
 # chosen_column = 'Pluviometro[ mm ]'
 
-train_x, test_x, train_y, test_y, y_scaler, index_test_y = add_label(df_list, meteo_data, batch_size, chosen_column=chosen_column)
+train_x, test_x, train_y, test_y, scalers_y, index_test_y = add_label(df_list, meteo_data, batch_size, chosen_column=chosen_column)
 
 
 model = Sequential()
@@ -185,39 +184,85 @@ history = model.fit(train_x, train_y,
 yhat = model.predict(test_x, batch_size=batch_size)[:, -1]
 yhat = pd.DataFrame.from_dict(yhat.flatten())
 yhat['index'] = index_test_y[:, -1]
-yhat.set_index("index", inplace=True)
+# yhat.set_index("index", inplace=True)
 
 # Step 2: Build observed DataFrame
 y_obs = pd.DataFrame.from_dict(test_y[:, -1].flatten())
 y_obs['index'] = index_test_y[:, -1]
-y_obs.set_index("index", inplace=True)
+# y_obs.set_index("index", inplace=True)
 
-# Step 3: Convert index to datetime and sort both DataFrames
-yhat.index = pd.to_datetime(yhat.index)
-y_obs.index = pd.to_datetime(y_obs.index)
-yhat.sort_index(inplace=True)
-y_obs.sort_index(inplace=True)
+# Merge on index
+h = pd.merge(yhat, y_obs, on='index')
+h.set_index('index', inplace=True)
+h.columns = ["predicted", 'observed']
+# Convert index to datetime and sort
+h.index = pd.to_datetime(h.index)
+h.sort_index(inplace=True)
+# Detect time gaps larger than 1 hour
+gap_threshold = pd.Timedelta(hours=1)
+time_diffs = h.index.to_series().diff()
+h['segment_id'] = (time_diffs > gap_threshold).cumsum().fillna(0).astype(int)
 
-# Step 4: Convert index to string after sorting
-yhat.index = yhat.index.astype(str)
-y_obs.index = y_obs.index.astype(str)
+# If needed, split into list of DataFrames:
+segments = [group for _, group in h.groupby('segment_id')]
 
-# Step 5: Concatenate the two DataFrames
-h = pd.concat([yhat, y_obs], axis=1, ignore_index=True)
-h.columns = [f"Predicted {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}",
-             f"Observed {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}"]
+for i, values in enumerate(zip(segments, scalers_y)):
+    segment, scaler = values
 
-width_px = 1400
-height_px = 1000
-dpi = 100  # dots per inch
-figsize = (width_px / dpi, height_px / dpi)
-h.plot(figsize=figsize)
-plt.xlabel("Time")  # X-axis label
-plt.ylabel(f"Standardised {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}", fontsize=20)  # Y-axis label
-plt.title(f"Predicted vs Observed {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}", fontsize=20)
-plt.xticks(fontsize=18, rotation=60)  # Increase x-axis tick label font
-plt.yticks(fontsize=18)
-plt.legend(fontsize=18)
-plt.tight_layout()
-plt.savefig(f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/predicted_{'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}")
+    segment = segment[[col for col in segment.columns if 'segment_id' not in col]]
+    segment["observed"] = scaler.inverse_transform(segment[
+                                                        [col for col in segment.columns if 'observed' in col]
+                                                    ].values)[:, -1]
+    segment["predicted"] = scaler.inverse_transform(segment[
+                                                        [col for col in segment.columns if 'predicted' in col]
+                                                    ].values)[:, -1]
+    mae_original = mean_absolute_error(segment["predicted"].values, segment["observed"])
+    with open(f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/{'temperature' if chosen_column == 'Temperatura[ °C ]' else 'umidity'}", 'a') as fw:
+        fw.writelines(f"Group {i} from {segment.index[0].strftime('%d-%m-%Y')} to {segment.index[-1].strftime('%d-%m-%Y')} has MAE: {mae_original}\n")
+    width_px = 1400
+    height_px = 1000
+    dpi = 100  # dots per inch
+    figsize = (width_px / dpi, height_px / dpi)
+    segment.plot(figsize=figsize)
+    plt.xlabel("Time", fontsize=20)  # X-axis label
+    plt.ylabel(f"Standardised {'temperature' if chosen_column == 'Temperatura[ °C ]' else 'humidity'}",
+               fontsize=20)  # Y-axis label
+    plt.title(f"Predicted vs Observed {'temperature' if chosen_column == 'Temperatura[ °C ]' else 'humidity'}",
+              fontsize=20)
+    plt.xticks(fontsize=18, rotation=60)  # Increase x-axis tick label font
+    plt.yticks(fontsize=18)
+    plt.legend(fontsize=18)
+    plt.tight_layout()
+    plt.savefig(
+        f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/predicted_{'temperature' if chosen_column == 'Temperatura[ °C ]' else 'umidity'}_{i}")
+    plt.close()
+# print(f"MSE in original scale: {mse_original:.4f}")
+# # Step 3: Convert index to datetime and sort both DataFrames
+# yhat.index = pd.to_datetime(yhat.index)
+# y_obs.index = pd.to_datetime(y_obs.index)
+# yhat.sort_index(inplace=True)
+# y_obs.sort_index(inplace=True)
+#
+# # Step 4: Convert index to string after sorting
+# yhat.index = yhat.index.astype(str)
+# y_obs.index = y_obs.index.astype(str)
+#
+# # Step 5: Concatenate the two DataFrames
+# h = pd.concat([yhat, y_obs], axis=1, ignore_index=True)
+# h.columns = [f"Predicted {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'humidity'}",
+#              f"Observed {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}"]
+#
+# width_px = 1400
+# height_px = 1000
+# dpi = 100  # dots per inch
+# figsize = (width_px / dpi, height_px / dpi)
+# h.plot(figsize=figsize)
+# plt.xlabel("Time", fontsize=20)  # X-axis label
+# plt.ylabel(f"Standardised {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'humidity'}", fontsize=20)  # Y-axis label
+# plt.title(f"Predicted vs Observed {'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'humidity'}", fontsize=20)
+# plt.xticks(fontsize=18, rotation=60)  # Increase x-axis tick label font
+# plt.yticks(fontsize=18)
+# plt.legend(fontsize=18)
+# plt.tight_layout()
+# plt.savefig(f"/home/daltonik/Desktop/bioML_R1/bio-ml/images/predicted_{'temperature' if chosen_column == 'Temperatura[ °C ]'  else 'umidity'}")
 model.save(f'bioml_{batch_size}_{chosen_column[:6]}')

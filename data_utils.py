@@ -122,8 +122,8 @@ def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]
     fun_meteo_data = fun_meteo_data[~fun_meteo_data.index.duplicated(keep=False)]
     fun_meteo_data = fun_meteo_data.asfreq("h")
     # fun_meteo_data = fun_meteo_data.resample('min').interpolate(method='time')
-    scaler = MinMaxScaler(feature_range=(0, 1))
     # scaler = StandardScaler()
+    scalers = []
 
     for df in dfs:
         beginning = df.index[0];
@@ -145,10 +145,11 @@ def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]
         X = []
         Y = []
         INDEX = []
+        scaler = MinMaxScaler(feature_range=(0, 1))
         scaled_data = scaler.fit_transform(complete_data)
+        scaler = scaler.fit(complete_data.iloc[:, -1].values.reshape(-1, 1))
         complete_data = pd.DataFrame(scaled_data, columns=complete_data.columns, index=complete_data.index
-                                     )
-
+                               )
         for i in range(num_samples):
 
             x = complete_data[complete_data.columns[:-1]].iloc[i:i + batch_size].values
@@ -163,6 +164,7 @@ def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]
             INDEX.append(complete_data[complete_data.columns[-1]].iloc[i:i+batch_size].index.values.reshape(1, -1))
 
         # batch_size = 1
+
         try:
 
             X = np.concatenate(X)
@@ -190,6 +192,9 @@ def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]
         except Exception as err:
             print("Not enough length for test or train data   ", err)
 
+        else:
+            scalers.append(scaler)
+
     trains_x = np.concatenate(trains_x)
     trains_y = np.concatenate(trains_y)
     indices = np.concatenate(indices)
@@ -200,7 +205,7 @@ def add_label(dfs, fun_meteo_data, batch_size, chosen_column='Temperatura[ °C ]
         tests_x = np.concatenate(tests_x)
         tests_y = np.concatenate(tests_y)
 
-        return trains_x, tests_x, trains_y, tests_y, scaler, indices
+        return trains_x, tests_x, trains_y, tests_y, scalers, indices
 
 
 # def add_label_categorise(df, fun_meteo_data, batch_size, is_tf=True):
